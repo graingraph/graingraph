@@ -193,3 +193,77 @@ func TestSliceBoundsAcceptWholeFloats(t *testing.T) {
 		}
 	}
 }
+
+// Deferring a SET to the next flush (write-behind) must be invisible: batched vs
+// one UPDATE per assignment give identical rows, counters, errors and final graph —
+// for read-your-writes across rows, null/REMOVE, map and merge forms, MERGE ON
+// CREATE/MATCH, batches crossing the chunk size, and a constraint violation that
+// rolls the whole statement back.
+func TestSetWriteBehindAgreesWithRowAtATime(t *testing.T) {
+	// The run toggle flips a package var; default it after the test so a failure in
+	// here cannot leak a flipped write-behind into a later test in this suite.
+	defer func() { setBehindDisabled = false }()
+	script := []string{
+		"CREATE CONSTRAINT FOR (n:U) REQUIRE n.k IS UNIQUE",
+		// read-your-writes across many rows: set, then match the same table again
+		"UNWIND range(1, 50) AS i CREATE (:M {i: i})",
+		"MATCH (n:M) WITH n SET n.v = n.i * 2",
+		"MATCH (n:M) RETURN sum(n.v) AS sum, count(n.v) AS nz ORDER BY sum",
+		// a SET that sets then clears a key leaves no trace; net counters must be 0
+		"UNWIND range(1, 5) AS i CREATE (n:C {i: i, x: 99}) WITH n SET n.x = null RETURN count(n.x) AS nz",
+		"MATCH (n) SET n = {a: 1, b: 2}", // replace-all on every node
+		"MATCH (n:M) SET n += {c: 9} RETURN count(n.c) AS c",
+		"UNWIND range(1, 5) AS i MATCH (n:M WHERE n.i = i) REMOVE n.v RETURN count(n.v) AS nz",
+		// MERGE both paths exercise ON CREATE vs ON MATCH SET
+		"MERGE (m:KindA {k: 1}) ON CREATE SET m.created = 1",
+		"MERGE (m:KindA {k: 1}) ON MATCH SET m.seen = 1",
+		"MATCH (a:M WHERE a.i=1) MERGE (a)-[:K]->(b:KindB {j: a.i}) ON MATCH SET b.touched = true RETURN count(*) AS c",
+		// crossing the batch boundary: force more than propRowsPerBatch ids so at
+		// least two UPDATE chunks are issued (kept small so this stays fast under -race)
+		"MATCH (n:M) SET n.s = 'set-' + toString(id(n)) RETURN count(*) AS c ORDER BY c",
+		"UNWIND range(1, 340) AS i CREATE (:BigN {i: i}) WITH i MATCH (x:BigN) SET x.s = i RETURN count(x.s) AS c",
+		// final graph must match exactly
+		"MATCH (n) RETURN id(n) AS id, labels(n) AS l, properties(n) AS p ORDER BY id LIMIT 60",
+		"MATCH ()-[r]->() RETURN id(r) AS id, type(r) AS t, properties(r) AS p ORDER BY id",
+	}
+	// With a constraint present the statement reads before/after, so the batch and
+	// per-row paths take slightly different routes; both still have to agree. A
+	// duplicate-k insert must fail identically and leave nothing behind.
+	failing := "UNWIND [7, 7, 8] AS k CREATE (:U {k: k})"
+
+	run := func(disabled bool) []string {
+		setBehindDisabled = disabled
+		db, err := store.Open(":memory:", store.Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var out []string
+		for _, q := range script {
+			out = append(out, q+" => "+runWithEffects(t, db, q))
+		}
+		// The duplicate-k statement must leave nothing: count is still 0 after it.
+		out = append(out, "fail-count => "+runWithEffects(t, db, failing+""))
+		out = append(out, "count-after-fail => "+runWithEffects(t, db, "MATCH (n:U) RETURN count(n:U) AS c"))
+		return out
+	}
+
+	before := batchedPropRows.Load()
+	g0 := batchedPropRows.Load()
+	want := run(true) // per row (write-behind off): no batching on the property path
+	if batchedPropRows.Load() != g0 {
+		t.Fatal("with write-behind off, batches leaked")
+	}
+	got := run(false) // write-behind on: batching the property updates
+	if len(got) != len(want) {
+		t.Fatalf("%d != %d results", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("per-row:\n  %s\nbatched:\n  %s", want[i], got[i])
+		}
+	}
+	if got := batchedPropRows.Load() - before; got < propRowsPerBatch {
+		t.Errorf("only %d property updates were written in a batch; expected more than %d ids across the >300 loop to exercise chunking", got, propRowsPerBatch)
+	}
+}
