@@ -96,6 +96,66 @@ func TestWithBusyTimeout(t *testing.T) {
 	defer func() { _ = db.Close(context.Background()) }()
 }
 
+// TestWithPageCache verifies the SQLite tuning options open without error and a
+// query still runs against a database tuned this way.
+func TestWithPageCache(t *testing.T) {
+	dir := t.TempDir()
+	db, err := graingraph.Open(filepath.Join(dir, "g.db"),
+		graingraph.WithPageCache(4<<20),
+		graingraph.WithMMapSize(1<<30),
+		graingraph.WithSyncMode(graingraph.SyncNormal),
+	)
+	if err != nil {
+		t.Fatalf("Open with page cache tuning: %v", err)
+	}
+	defer func() { _ = db.Close(context.Background()) }()
+
+	if _, err := db.RunQuery(context.Background(), `CREATE (n:A {k: 1})`, nil); err != nil {
+		t.Fatalf("query in tuned db: %v", err)
+	}
+}
+
+// TestWithSyncModeAccepted verifies every SyncMode value (and a disabling mmap
+// request) is accepted by Open.
+func TestWithSyncModeAccepted(t *testing.T) {
+	for _, mode := range []graingraph.SyncMode{
+		graingraph.SyncDefault, graingraph.SyncOff, graingraph.SyncNormal, graingraph.SyncFull,
+	} {
+		mode := mode
+		t.Run(fmt.Sprintf("%d", mode), func(t *testing.T) {
+			db, err := graingraph.Open(":memory:", graingraph.WithSyncMode(mode))
+			if err != nil {
+				t.Fatalf("Open with WithSyncMode(%d): %v", mode, err)
+			}
+			defer func() { _ = db.Close(context.Background()) }()
+		})
+	}
+
+	// A negative mmap request disables it and must still be accepted.
+	db, err := graingraph.Open(":memory:", graingraph.WithMMapSize(-1))
+	if err != nil {
+		t.Fatalf("Open with WithMMapSize(-1): %v", err)
+	}
+	defer func() { _ = db.Close(context.Background()) }()
+}
+
+// TestWithPageSizeRejected verifies a positive-but-invalid page size fails Open,
+// while a non-positive one (a documented no-op) does not.
+func TestWithPageSizeRejected(t *testing.T) {
+	for _, ps := range []int{256, 1000, 1 << 16} {
+		ps := ps
+		t.Run(fmt.Sprintf("ps%d", ps), func(t *testing.T) {
+			_, err := graingraph.Open(filepath.Join(t.TempDir(), "g.db"), graingraph.WithPageSize(ps))
+			if err == nil {
+				t.Fatalf("page size %d: expected an error", ps)
+			}
+		})
+	}
+	if _, err := graingraph.Open(":memory:", graingraph.WithPageSize(-4096)); err != nil {
+		t.Fatalf("non-positive page size should be ignored, got %v", err)
+	}
+}
+
 // TestWithReadOnly verifies that read queries succeed and write queries return
 // ErrReadOnly when WithReadOnly is set.
 func TestWithReadOnly(t *testing.T) {

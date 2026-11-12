@@ -612,6 +612,10 @@ Every flag has an environment variable (`--tx-timeout` is `GRAINGRAPH_QUERY_TX_T
 | `--tx-timeout` | `5m` | idle timeout for explicit transactions |
 | `--tx-wait` | `5s` | how long a request waits for an open transaction to end before failing with "transaction X is open" (`0` fails at once) |
 | `--import-dir` | | enables `LOAD CSV` below this directory |
+| `--page-cache` | 0 | SQLite page cache in bytes (raises `PRAGMA cache_size`; about 2 MiB per connection when `0`) |
+| `--mmap-size` | 0 | memory-mapped I/O of the database file, in bytes; a negative value disables it, `0` uses SQLite's default |
+| `--synchronous` | | `PRAGMA synchronous`: `full`, `normal` or `off`; blank leaves journal_mode's default (`off` is lossy across a crash) |
+| `--page-size` | 0 | page size in bytes for a new database file; a power of two between 512 and 32768, ignored on an existing file |
 | `--tls-cert`, `--tls-key` | | enable HTTPS |
 | `--cors-origins` | `*` | origins allowed by CORS; `none` disables |
 | `--public-url` | from request | base URL advertised by discovery |

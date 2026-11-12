@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,7 +28,42 @@ type Config struct {
 	// never get one, because a second connection would see a different
 	// database.
 	ReadConns int
+
+	// CacheSize sets PRAGMA cache_size to that many bytes of page cache,
+	// applied as a negative kibibyte count so it is independent of the page
+	// size (a positive value would be pages). Zero leaves SQLite's default
+	// (about 2 MiB per connection). The setting is per connection, so a
+	// database with ReadConns readers uses roughly CacheSize × ReadConns of
+	// cache in total.
+	CacheSize int64
+
+	// MMapSize sets PRAGMA mmap_size to that many bytes, enabling
+	// memory-mapped I/O over the database file and lifting reads off the page
+	// cache. A negative value disables mmap (-1); zero leaves SQLite's default
+	// untouched. It is best for large files and reader-heavy workloads, and has
+	// no effect on an in-memory database.
+	MMapSize int64
+
+	// Synchronous sets PRAGMA synchronous on the write connection: 0 (OFF,
+	// fastest but loses committed data across a crash or power loss), 1 (NORMAL,
+	// durable across a process crash under WAL — the usual tradeoff) and 2 (FULL,
+	// synchronising after every commit). SyncUnset leaves journal_mode's default
+	// in force. It is applied on the writer only; a query-only reader never
+	// writes and so is never asked to apply it.
+	Synchronous int
+
+	// PageSize sets PRAGMA page_size to that many bytes for a new database file,
+	// which must be a power of two between 512 and 32768 and is applied before any
+	// page is written. An existing (non-empty) database keeps its page size, so the
+	// setting is a no-op there — the option is safe to pass whether or not the file
+	// pre-exists. Zero leaves SQLite's default (4 KiB).
+	PageSize int
 }
+
+// SyncUnset means "do not set PRAGMA synchronous": journal_mode's default
+// (FULL under WAL) stands. Synchronous 0 is itself a real value (OFF), so the
+// unset state needs its own sentinel.
+const SyncUnset = -1
 
 // SQLiteStore is the SQLite-backed implementation of Store.
 // It uses modernc.org/sqlite so no CGO is required.
@@ -71,6 +107,23 @@ func Open(uri string, cfg Config) (*SQLiteStore, error) {
 	// connection, which is correct for both file-based and in-memory databases.
 	db.SetMaxOpenConns(1)
 
+	// The page size must be fixed before the first page is written, so it goes
+	// before WAL and the schema DDL. It only takes on an empty file; an existing
+	// database keeps its size (a documented no-op), which keeps the option safe to
+	// pass whether or not the file pre-exists.
+	if ps := cfg.PageSize; ps > 0 {
+		if ps < 512 || ps > 32768 || (ps&(ps-1)) != 0 {
+			_ = db.Close()
+			return nil, fmt.Errorf("store: page size %d must be a power of two between 512 and 32768 bytes", ps)
+		}
+		if newDatabaseFile(uri) {
+			if _, err := db.Exec(fmt.Sprintf("PRAGMA page_size=%d;", ps)); err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("store: set page size: %w", err)
+			}
+		}
+	}
+
 	// Enable WAL mode for better concurrent-reader performance.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL;"); err != nil {
 		_ = db.Close()
@@ -90,6 +143,33 @@ func Open(uri string, cfg Config) (*SQLiteStore, error) {
 		if _, err := db.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d;", ms)); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("store: set busy_timeout: %w", err)
+		}
+	}
+
+	// Per-connection memory and durability tuning. The write connection is the one
+	// and only pool member (see SetMaxOpenConns), so an inline PRAGMA covers it; the
+	// same values are threaded into the read pool's DSN, where each pooled connection
+	// must receive them independently.
+	if cfg.CacheSize > 0 {
+		// cache_size: bytes come in, but a negative value is kibibytes of cache
+		// (page-size independent); a positive one would be a page count.
+		if _, err := db.Exec(fmt.Sprintf("PRAGMA cache_size=%d;", -cfg.CacheSize/1024)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("store: set page cache: %w", err)
+		}
+	}
+	if cfg.MMapSize != 0 {
+		// mmap_size: a negative value disables memory-mapped I/O (-1); a positive
+		// one sets the cap in bytes. ignored on an in-memory database.
+		if _, err := db.Exec(fmt.Sprintf("PRAGMA mmap_size=%d;", cfg.MMapSize)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("store: set memory-mapped I/O size: %w", err)
+		}
+	}
+	if cfg.Synchronous != SyncUnset {
+		if _, err := db.Exec(fmt.Sprintf("PRAGMA synchronous=%d;", cfg.Synchronous)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("store: set synchronous: %w", err)
 		}
 	}
 
@@ -125,12 +205,36 @@ func fileBacked(uri string) bool {
 	return uri != "" && !strings.Contains(u, ":memory:") && !strings.Contains(u, "mode=memory")
 }
 
+// newDatabaseFile reports whether uri names a database that has no pages yet: an
+// in-memory database, or a file-backed one that does not exist. It is what makes
+// WithPageSize a no-op on an existing file rather than an error — SQLite fixes the
+// page size when the first page is written, so re-opening a populated database and
+// requesting a new size silently keeps the old one. A stat error other than "not
+// exist" is treated as existing, so a best-effort page-size request never blocks
+// opening a database it can otherwise reach.
+func newDatabaseFile(uri string) bool {
+	if !fileBacked(uri) { // in-memory or empty: nothing was ever written to disk
+		return true
+	}
+	_, err := os.Stat(uri)
+	return os.IsNotExist(err) // only a truly-absent file is "new"
+}
+
 // openReadPool opens the read-only pool. The pragmas go in the DSN so that
 // every connection the pool opens gets them, not just the first.
 func openReadPool(uri string, cfg Config) (*sql.DB, error) {
 	pragmas := []string{"query_only(1)", "foreign_keys(1)"}
 	if cfg.BusyTimeout > 0 {
 		pragmas = append(pragmas, fmt.Sprintf("busy_timeout(%d)", cfg.BusyTimeout.Milliseconds()))
+	}
+	// Per-connection reads must get the memory tuning too, as every pooled
+	// connection is independent of the writer's inline PRAGMAs. The same
+	// kibibyte form is used so a page-size change keeps the meaning stable.
+	if cfg.CacheSize > 0 {
+		pragmas = append(pragmas, fmt.Sprintf("cache_size(%d)", -cfg.CacheSize/1024))
+	}
+	if cfg.MMapSize != 0 {
+		pragmas = append(pragmas, fmt.Sprintf("mmap_size(%d)", cfg.MMapSize))
 	}
 	sep := "?"
 	if strings.Contains(uri, "?") {
