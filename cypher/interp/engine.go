@@ -191,11 +191,14 @@ func (e *Engine) noteScan(ctx context.Context, db DB, key string, readOnly bool)
 }
 
 // createIndex creates the expression index for key. The caller holds e.mu.
+// It is a partial index (entries only for nodes that actually have `key`, so
+// most writes touch it not at all); an `expr = <value>` lookup still proves the
+// row qualifies, so SQLite uses it as before.
 func (e *Engine) createIndex(ctx context.Context, db DB, key string) error {
 	id := fmt.Sprintf("%x", key)
 	// key is restricted to [A-Za-z0-9_] by pushableKey, so it is safe to inline.
 	_, err := db.ExecContext(ctx, fmt.Sprintf(
-		`CREATE INDEX IF NOT EXISTS %s%s ON nodes(json_extract(props, '$."%s"'))`, indexPrefix, id, key))
+		`CREATE INDEX IF NOT EXISTS %s%s ON nodes(json_extract(props, '$."%s"')) WHERE json_extract(props, '$."%s"') IS NOT NULL`, indexPrefix, id, key, key))
 	if err == nil {
 		e.indexed[id] = true
 	}
