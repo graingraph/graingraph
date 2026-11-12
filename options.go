@@ -27,6 +27,12 @@ type dbConfig struct {
 	readConns   int
 	vectorCache int64
 	noAutoIndex bool
+	// Per-connection SQLite tuning, applied at Open time. All are optional; a
+	// zero value leaves SQLite's default (see the With* constructors).
+	cacheSize int64
+	mmapSize  int64
+	syncMode  SyncMode // zero is SyncDefault: leave journal_mode's default
+	pageSize  int
 }
 
 // WithBusyTimeout sets the SQLite busy_timeout pragma. When a write operation
@@ -125,4 +131,73 @@ func WithMaxVectorCacheBytes(n int64) Option {
 // create indexes only with CREATE INDEX or [DB.CreatePropertyIndex].
 func WithoutAutomaticIndexes() Option {
 	return func(c *dbConfig) { c.noAutoIndex = true }
+}
+
+// SyncMode selects the durability level applied to PRAGMA synchronous on the
+// write connection (see SQLite's "WAL and Durability"). It is named by
+// WithSyncMode; SyncDefault leaves journal_mode's default in force. Under WAL,
+// SyncNormal is durable across a process crash but not a power loss or OS crash,
+// which is the usual speed/durability tradeoff; SyncOff is fastest and can lose
+// committed data — use it deliberately.
+type SyncMode int
+
+const (
+	// SyncDefault leaves PRAGMA synchronous at journal_mode's default (FULL).
+	SyncDefault SyncMode = iota
+	// SyncOff synchronises as little as possible; fastest, and lossy across a
+	// crash or power loss.
+	SyncOff
+	// SyncNormal is durable across a process crash under WAL, but not a power
+	// loss. The recommended setting once WAL is in use.
+	SyncNormal
+	// SyncFull synchronises after every commit; the safest.
+	SyncFull
+)
+
+// WithPageCache sets the SQLite page cache to n bytes by applying
+// PRAGMA cache_size as a negative kibibyte count (-n/1024), which is independent
+// of the page size (a positive value would be a page count). The setting is per
+// connection, so a database opened with WithMaxReadConns(r) uses roughly n × r of
+// cache in total. n <= 0 leaves SQLite's default (about 2 MiB); it has no effect
+// on an in-memory database.
+func WithPageCache(n int64) Option {
+	return func(c *dbConfig) {
+		if n > 0 {
+			c.cacheSize = n
+		}
+	}
+}
+
+// WithMMapSize enables memory-mapped I/O over the database file of n bytes via
+// PRAGMA mmap_size, lifting reads off the page cache and onto the mapping. A
+// positive n sets the cap; a negative value disables mmap (-1); zero leaves
+// SQLite's default untouched. It is most useful for large files that outgrow the
+// file-system cache (see [WithPageCache]), and has no effect on an in-memory
+// database.
+func WithMMapSize(n int64) Option {
+	return func(c *dbConfig) {
+		if n != 0 {
+			c.mmapSize = n
+		}
+	}
+}
+
+// WithSyncMode sets PRAGMA synchronous on the write connection to m (see
+// SyncMode). It is a durability-versus-speed tradeoff; the default SyncDefault
+// applies no pragma and leaves journal_mode's FULL in place.
+func WithSyncMode(m SyncMode) Option {
+	return func(c *dbConfig) { c.syncMode = m }
+}
+
+// WithPageSize requests a page size of n bytes for a new database file, applied
+// by PRAGMA page_size before the first page is written. It must be a power of two
+// between 512 and 32768, otherwise [Open] returns an error. On a file that already
+// holds pages the setting is a no-op (SQLite fixes the size at creation), so it
+// matters only for new databases; n <= 0 leaves SQLite's default (4 KiB).
+func WithPageSize(n int) Option {
+	return func(c *dbConfig) {
+		if n > 0 {
+			c.pageSize = n
+		}
+	}
 }

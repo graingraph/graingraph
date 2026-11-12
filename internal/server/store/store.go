@@ -90,6 +90,12 @@ type storeConfig struct {
 	txWait    time.Duration
 	readOnly  bool
 	importDir string
+	// Graingraph database tuning, forwarded to graingraph.Open when set. A zero
+	// value leaves the corresponding SQLite default in place.
+	cacheSize int64
+	mmapSize  int64
+	syncMode  graingraph.SyncMode // zero is SyncDefault: leave journal_mode's default
+	pageSize  int
 }
 
 // WithReadOnly opens the graingraph database in read-only mode.
@@ -106,6 +112,23 @@ func WithImportDirectory(dir string) Option {
 	return func(c *storeConfig) { c.importDir = dir }
 }
 
+// WithPageCache sets the SQLite page cache in bytes (see graingraph.WithPageCache).
+func WithPageCache(n int64) Option { return func(c *storeConfig) { c.cacheSize = n } }
+
+// WithMMapSize sets memory-mapped I/O of the database file in bytes; a negative
+// value disables it (see graingraph.WithMMapSize).
+func WithMMapSize(n int64) Option { return func(c *storeConfig) { c.mmapSize = n } }
+
+// WithSyncMode sets PRAGMA synchronous on the write connection (see
+// graingraph.SyncMode); SyncDefault applies no pragma.
+func WithSyncMode(m graingraph.SyncMode) Option {
+	return func(c *storeConfig) { c.syncMode = m }
+}
+
+// WithPageSize sets the page size in bytes for a new database file (see
+// graingraph.WithPageSize).
+func WithPageSize(n int) Option { return func(c *storeConfig) { c.pageSize = n } }
+
 // New opens (or creates) the graingraph database at path.
 func New(path string, opts ...Option) (*Store, error) {
 	var cfg storeConfig
@@ -118,6 +141,20 @@ func New(path string, opts ...Option) (*Store, error) {
 	}
 	if cfg.importDir != "" {
 		dbOpts = append(dbOpts, graingraph.WithImportDirectory(cfg.importDir))
+	}
+	// Each tuning option is forwarded only when set, so a server that does not
+	// pass one leaves SQLite's default in place (matching the graingraph layer).
+	if cfg.cacheSize > 0 {
+		dbOpts = append(dbOpts, graingraph.WithPageCache(cfg.cacheSize))
+	}
+	if cfg.mmapSize != 0 {
+		dbOpts = append(dbOpts, graingraph.WithMMapSize(cfg.mmapSize))
+	}
+	if cfg.syncMode != graingraph.SyncDefault {
+		dbOpts = append(dbOpts, graingraph.WithSyncMode(cfg.syncMode))
+	}
+	if cfg.pageSize > 0 {
+		dbOpts = append(dbOpts, graingraph.WithPageSize(cfg.pageSize))
 	}
 	db, err := graingraph.Open(path, dbOpts...)
 	if err != nil {

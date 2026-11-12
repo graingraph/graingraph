@@ -97,6 +97,10 @@ func Open(path string, opts ...Option) (*DB, error) {
 	st, err := store.Open(path, store.Config{
 		BusyTimeout: cfg.busyTimeout,
 		ReadConns:   cfg.readConns,
+		CacheSize:   cfg.cacheSize,
+		MMapSize:    cfg.mmapSize,
+		Synchronous: syncModeValue(cfg.syncMode),
+		PageSize:    cfg.pageSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("graingraph: open %q: %w", path, err)
@@ -107,6 +111,22 @@ func Open(path string, opts ...Option) (*DB, error) {
 	d.eng.VectorCacheBytes = cfg.vectorCache
 	d.eng.NoAutoIndexes = cfg.noAutoIndex
 	return d, nil
+}
+
+// syncModeValue maps a public SyncMode onto SQLite's PRAGMA synchronous integer,
+// returning store.SyncUnset for "leave journal_mode's default in place". 0/1/2
+// are OFF/NORMAL/FULL respectively.
+func syncModeValue(m SyncMode) int {
+	switch m {
+	case SyncOff:
+		return 0
+	case SyncNormal:
+		return 1
+	case SyncFull:
+		return 2
+	default:
+		return store.SyncUnset
+	}
 }
 
 // Snapshot writes an atomic, consistent copy of the database to path.

@@ -16,9 +16,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/graingraph/graingraph"
 	"github.com/graingraph/graingraph/internal/server/api"
 	"github.com/graingraph/graingraph/internal/server/auth"
 	"github.com/graingraph/graingraph/internal/server/config"
@@ -100,6 +102,10 @@ func run(ctx context.Context, args []string, stdout io.Writer, ready func(addr s
 		readOnly  = flags.Bool("read-only", config.EnvBool("GRAINGRAPH_QUERY_READ_ONLY", false), "open the database read-only")
 		txTimeout = flags.Duration("tx-timeout", config.EnvDuration("GRAINGRAPH_QUERY_TX_TIMEOUT", 5*time.Minute), "idle timeout for explicit transactions (0 disables)")
 		txWait    = flags.Duration("tx-wait", config.EnvDuration("GRAINGRAPH_QUERY_TX_WAIT", 5*time.Second), "how long a request waits for an open transaction to end before failing (0 fails at once)")
+		pageCache = flags.Int64("page-cache", config.EnvInt64("GRAINGRAPH_QUERY_PAGE_CACHE", 0), "SQLite page cache in bytes (raises PRAGMA cache_size); 0 uses the ~2 MiB default")
+		mmapSize  = flags.Int64("mmap-size", config.EnvInt64("GRAINGRAPH_QUERY_MMAP_SIZE", 0), "memory-mapped I/O of the database file, in bytes; a negative value disables it, 0 uses SQLite's default")
+		syncModeS = flags.String("synchronous", config.EnvOr("GRAINGRAPH_QUERY_SYNCHRONOUS", ""), "PRAGMA synchronous: full, normal or off; blank leaves the journal_mode default (full)")
+		pageSize  = flags.Int("page-size", config.EnvInt("GRAINGRAPH_QUERY_PAGE_SIZE", 0), "page size in bytes for a new database file; a power of two between 512 and 32768")
 		importDir = flags.String("import-dir", config.EnvOr("GRAINGRAPH_QUERY_IMPORT_DIR", ""), "directory that enables LOAD CSV, restricted to files below it")
 		username  = flags.String("username", config.EnvOr("GRAINGRAPH_QUERY_USERNAME", ""), "basic-auth username")
 		password  = flags.String("password", config.EnvOr("GRAINGRAPH_QUERY_PASSWORD", ""), "basic-auth password (visible in the process list; prefer GRAINGRAPH_QUERY_PASSWORD)")
@@ -155,6 +161,22 @@ func run(ctx context.Context, args []string, stdout io.Writer, ready func(addr s
 	stOpts = append(stOpts, store.WithTxWait(*txWait))
 	if cfg.ImportDir != "" {
 		stOpts = append(stOpts, store.WithImportDirectory(cfg.ImportDir))
+	}
+	// Forward the SQLite tuning options only when set, so a server that omits one
+	// leaves SQLite's default in place.
+	if *pageCache > 0 {
+		stOpts = append(stOpts, store.WithPageCache(*pageCache))
+	}
+	if *mmapSize != 0 {
+		stOpts = append(stOpts, store.WithMMapSize(*mmapSize))
+	}
+	if sm, err := parseSyncMode(*syncModeS); err != nil {
+		return err
+	} else if sm != graingraph.SyncDefault {
+		stOpts = append(stOpts, store.WithSyncMode(sm))
+	}
+	if *pageSize > 0 {
+		stOpts = append(stOpts, store.WithPageSize(*pageSize))
 	}
 	st, err := store.New(cfg.DBPath, stOpts...)
 	if err != nil {
@@ -239,4 +261,23 @@ func idSeed(dbPath string) string {
 		return abs
 	}
 	return dbPath
+}
+
+// parseSyncMode maps the --synchronous flag onto a graingraph.SyncMode. An empty
+// value means "leave journal_mode's default" (SyncDefault). "extra" is accepted as
+// an alias for full, mirroring SQLite's synchronous=EXTRA, which WAL treats the
+// same as FULL here.
+func parseSyncMode(s string) (graingraph.SyncMode, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "":
+		return graingraph.SyncDefault, nil
+	case "off":
+		return graingraph.SyncOff, nil
+	case "normal":
+		return graingraph.SyncNormal, nil
+	case "full", "extra":
+		return graingraph.SyncFull, nil
+	default:
+		return graingraph.SyncDefault, fmt.Errorf("--synchronous must be full, normal or off; got %q", s)
+	}
 }
