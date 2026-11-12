@@ -377,6 +377,15 @@ func backingIndexName(id int64) string { return "gl_idx_" + strconv.FormatInt(id
 
 // backingIndexSQL is the CREATE INDEX statement for a definition, or "" when
 // a property key is not a plain identifier (the definition is still recorded).
+//
+// The index is partial: an entity keeps an entry only while every one of its
+// indexed properties is non-null, so a node of any unrelated label (which lacks
+// all of them) writes nothing here. That is what stops the importer's other-label
+// constraints from polluting every insert, and a query on `expr = <value>` lets
+// SQLite use it: an equality against a known value proves `expr IS NOT NULL`.
+// For a composite index the admission test is the AND of all expressions, so only
+// rows that set every indexed property are admitted; a prefix lookup that
+// constrains only the first column falls back to a scan rather than misusing it.
 func backingIndexSQL(id int64, d schemaDef) string {
 	var exprs []string
 	for _, p := range d.Props {
@@ -392,7 +401,15 @@ func backingIndexSQL(id int64, d schemaDef) string {
 	if d.Entity == "RELATIONSHIP" {
 		table = "edges"
 	}
-	return `CREATE INDEX IF NOT EXISTS ` + backingIndexName(id) + ` ON ` + table + `(` + strings.Join(exprs, ", ") + `)`
+	where := make([]string, 0, len(exprs))
+	for _, e := range exprs {
+		where = append(where, e+` IS NOT NULL`)
+	}
+	sql := `CREATE INDEX IF NOT EXISTS ` + backingIndexName(id) + ` ON ` + table + `(` + strings.Join(exprs, ", ") + `)`
+	if len(where) == 1 {
+		return sql + " WHERE " + where[0]
+	}
+	return sql + " WHERE " + strings.Join(where, " AND ")
 }
 
 // ─── DROP ───────────────────────────────────────────────────────────────────
