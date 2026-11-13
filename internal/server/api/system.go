@@ -157,11 +157,23 @@ func (h *Handler) systemOutcome(statement, address, user string) (*store.Outcome
 		fields, rows = showFunctionsFields, [][]any{}
 	case cmd == "CALL DBMS.CLIENTCONFIG()" || cmd == "CALL DBMS.CLIENTCONFIG":
 		fields, rows = []string{"name", "value"}, [][]any{}
+	case strings.HasPrefix(cmd, "CALL DB.AWAITINDEXES") ||
+		strings.HasPrefix(cmd, "CALL DB.AWAITINDEX(") ||
+		cmd == "CALL DB.AWAITINDEX":
+		// db.awaitIndexes([timeOutSeconds]) and db.awaitIndex(indexName[,
+		// timeOutSeconds]) let a caller wait for index population to finish
+		// before continuing. graingraph builds its property expression indexes
+		// synchronously within the statement (in graph.finish), so every index is
+		// already online: there is nothing to wait for, and both calls are a no-op
+		// that returns Neo4j's VOID result — no columns, no rows. Their arguments
+		// are accepted and ignored; this lets importers that pause for an index
+		// build proceed unchanged.
+		fields, rows = []string{}, [][]any{}
 	case len(head) >= 2 && upper[0] == "CALL":
 		name := strings.TrimSuffix(strings.SplitN(head[1], "(", 2)[0], "()")
 		return nil, clientError("Neo.ClientError.Procedure.ProcedureNotFound", "There is no procedure with the name `%s` registered for this database instance. Please ensure you've spelled the procedure name correctly and that the procedure is properly deployed.", name)
 	default:
-		return nil, clientError(CodeSyntaxError, "graingraph-query supports only a few read-only administration commands on the system database (SHOW DATABASES, SHOW CURRENT USER, SHOW PROCEDURES, SHOW FUNCTIONS, CALL db.ping(), CALL dbms.components(), CALL dbms.info(), CALL dbms.clientConfig()).")
+		return nil, clientError(CodeSyntaxError, "graingraph-query supports only a few read-only administration commands on the system database (SHOW DATABASES, SHOW CURRENT USER, SHOW PROCEDURES, SHOW FUNCTIONS, CALL db.ping(), CALL dbms.components(), CALL dbms.info(), CALL dbms.clientConfig(), CALL db.awaitIndexes(), CALL db.awaitIndex()).")
 	}
 
 	if len(yield) > 0 && !(len(yield) == 1 && yield[0] == "*") {
