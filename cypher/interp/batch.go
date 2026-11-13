@@ -19,8 +19,17 @@ import (
 // batchDisabled makes every create its own INSERT again; tests use it to compare.
 var batchDisabled bool
 
+// setBehindDisabled makes every SET persist its property as it is assigned,
+// instead of deferring the write to the next flushWrites (one batched UPDATE).
+// Tests flip it on to compare the two paths entity by entity.
+var setBehindDisabled bool
+
 // batchedRows counts the entities written through a multi-row INSERT (for tests).
 var batchedRows atomic.Int64
+
+// batchedPropRows counts the property updates written through a batched UPDATE
+// (for tests); the counterpart to batchedRows for SET.
+var batchedPropRows atomic.Int64
 
 const (
 	// batchLimit is the number of buffered entities that forces a flush.
@@ -29,6 +38,9 @@ const (
 	nodeRowsPerInsert  = 300 // 3 variables each
 	labelRowsPerInsert = 450 // 2
 	relRowsPerInsert   = 190 // 5
+	// propRowsPerBatch is the entities per batched property UPDATE; each adds a
+	// pair of WHEN/THEN clauses plus one IN entry, about three variables.
+	propRowsPerBatch = 300
 )
 
 type pendingNode struct {
@@ -125,9 +137,14 @@ func (g *graph) bufferRel(typ string, start, end int64, enc string) (int64, erro
 }
 
 // flushWrites writes the buffered nodes (with their labels), then the buffered
-// relationships, which may refer to them.
+// relationships, which may refer to them, then any queued property updates of
+// existing entities. It runs on every read through graph.db and again at
+// statement end, so a deferred SET becomes visible no later than the next SQL
+// operation; on a statement that fails before then the buffer is dropped with the
+// rest of its effects, and the caller's rollback undoes whatever did flush.
 func (g *graph) flushWrites() error {
-	if len(g.pendNodes) == 0 && len(g.pendRels) == 0 {
+	if len(g.pendNodes) == 0 && len(g.pendRels) == 0 &&
+		len(g.pendNodeProps) == 0 && len(g.pendRelProps) == 0 {
 		return nil
 	}
 	nodes, rels := g.pendNodes, g.pendRels
@@ -192,6 +209,128 @@ func (g *graph) flushWrites() error {
 			return err
 		}
 		batchedRows.Add(int64(len(chunk)))
+	}
+	var err error
+	if err = g.flushNodePropUpdates(); err != nil {
+		return err
+	}
+	if err = g.flushRelPropUpdates(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// flushNodePropUpdates writes every pending node's final property map once, batched
+// as one parameterised UPDATE per propRowsPerBatch ids:
+//
+//	UPDATE nodes SET props = CASE id WHEN ? THEN ? … END WHERE id IN (?, …)
+//
+// The seen map deduped appends, so an entity appears at most once per drain; the CASE
+// arms list exactly the surviving (non-deleted) ids of the batch and no ELSE is used,
+// so rows not listed are left untouched. UPDATE … FROM is rejected by modernc.org/sqlite's
+// parser (verified on its own), hence the CASE/IN form. encodeProps never returns an
+// empty string, so an entity whose property set ended empty still writes "{}".
+func (g *graph) flushNodePropUpdates() error {
+	pending := g.pendNodeProps
+	if len(pending) == 0 {
+		return nil
+	}
+	g.pendNodeProps = nil
+	for _, n := range pending {
+		delete(g.nodePropSeen, n)
+	}
+	for start := 0; start < len(pending); start += propRowsPerBatch {
+		end := min(start+propRowsPerBatch, len(pending))
+		var ids []int64
+		var encs []string
+		for i := start; i < end; i++ {
+			n := pending[i]
+			if n.Deleted { // delete takes over on finish; no update needed
+				continue
+			}
+			enc, err := encodeProps(n.Props)
+			if err != nil {
+				return err
+			}
+			ids = append(ids, n.ID)
+			encs = append(encs, enc)
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		var sb strings.Builder
+		args := make([]any, 0, 3*len(ids))
+		sb.WriteString(`UPDATE nodes SET props = CASE id `)
+		for j, id := range ids {
+			sb.WriteString(" WHEN ? THEN ?")
+			args = append(args, id, encs[j])
+		}
+		sb.WriteString(" END WHERE id IN (")
+		for j, id := range ids {
+			if j > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteByte('?')
+			args = append(args, id)
+		}
+		sb.WriteByte(')')
+		if _, err := g.raw.ExecContext(g.ctx, sb.String(), args...); err != nil {
+			return err
+		}
+		batchedPropRows.Add(int64(len(ids)))
+	}
+	return nil
+}
+
+// flushRelPropUpdates is flushNodePropUpdates for the edges table.
+func (g *graph) flushRelPropUpdates() error {
+	pending := g.pendRelProps
+	if len(pending) == 0 {
+		return nil
+	}
+	g.pendRelProps = nil
+	for _, r := range pending {
+		delete(g.relPropSeen, r)
+	}
+	for start := 0; start < len(pending); start += propRowsPerBatch {
+		end := min(start+propRowsPerBatch, len(pending))
+		var ids []int64
+		var encs []string
+		for i := start; i < end; i++ {
+			r := pending[i]
+			if r.Deleted { // delete takes over on finish; no update needed
+				continue
+			}
+			enc, err := encodeProps(r.Props)
+			if err != nil {
+				return err
+			}
+			ids = append(ids, r.ID)
+			encs = append(encs, enc)
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		var sb strings.Builder
+		args := make([]any, 0, 3*len(ids))
+		sb.WriteString(`UPDATE edges SET props = CASE id `)
+		for j, id := range ids {
+			sb.WriteString(" WHEN ? THEN ?")
+			args = append(args, id, encs[j])
+		}
+		sb.WriteString(" END WHERE id IN (")
+		for j, id := range ids {
+			if j > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteByte('?')
+			args = append(args, id)
+		}
+		sb.WriteByte(')')
+		if _, err := g.raw.ExecContext(g.ctx, sb.String(), args...); err != nil {
+			return err
+		}
+		batchedPropRows.Add(int64(len(ids)))
 	}
 	return nil
 }

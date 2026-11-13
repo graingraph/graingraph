@@ -176,6 +176,19 @@ type graph struct {
 	pendNodes []pendingNode
 	pendRels  []pendingRel
 
+	// pendNodeProps / pendRelProps hold entities whose property maps changed and
+	// have not yet been written. setEntityProp records the change here instead of
+	// an immediate UPDATE, and flushWrites (called on every read and at statement
+	// end) writes each entity once as a batched row; see flushNodePropUpdates /
+	// flushRelPropUpdates below.
+	// The seen sets stop one node with many SET items from being listed twice in
+	// the same flush; they are reset when the pending slices are drained, so an
+	// entity changed again after that is queued afresh.
+	pendNodeProps []*Node
+	pendRelProps  []*Rel
+	nodePropSeen  map[*Node]bool
+	relPropSeen   map[*Rel]bool
+
 	nodes map[int64]*Node
 	rels  map[int64]*Rel
 	out   map[int64][]*Rel // outgoing relationships by node id, once loaded
@@ -223,6 +236,7 @@ func newGraph(ctx context.Context, db DB) *graph {
 		detach:       map[int64]bool{},
 		createdNodes: map[*Node]bool{}, createdRels: map[*Rel]bool{},
 		nodeSnap: map[*Node]*entSnap{}, relSnap: map[*Rel]*entSnap{},
+		nodePropSeen: map[*Node]bool{}, relPropSeen: map[*Rel]bool{},
 	}
 	g.db = &flushDB{g: g, raw: db}
 	return g
@@ -1144,7 +1158,11 @@ func (g *graph) writeNodeLabels(id int64, labels []string) error {
 	return err
 }
 
-// setNodeProp sets (or, for nil, removes) one property.
+// setNodeProp sets (or, for nil, removes) one property. The change is applied to
+// the in-memory node immediately (so later reads in this statement see it) but,
+// unless setBehindDisabled is on, persisted as a batched UPDATE by the next
+// flushWrites rather than per item; net counters are computed from the snapshot
+// at finish, not from how many UPDATEs ran.
 func (g *graph) setNodeProp(n *Node, key string, v any) error {
 	if n.Deleted {
 		return deletedAccess()
@@ -1154,7 +1172,7 @@ func (g *graph) setNodeProp(n *Node, key string, v any) error {
 			g.snapNodeProp(n, key)
 			g.counters.Events.PropertiesSet++
 			delete(n.Props, key)
-			return g.persistNodeProps(n)
+			return g.markNodePropDirty(n)
 		}
 		return nil
 	}
@@ -1164,7 +1182,7 @@ func (g *graph) setNodeProp(n *Node, key string, v any) error {
 	g.snapNodeProp(n, key)
 	g.counters.Events.PropertiesSet++
 	n.Props[key] = v
-	return g.persistNodeProps(n)
+	return g.markNodePropDirty(n)
 }
 
 func (g *graph) setRelProp(r *Rel, key string, v any) error {
@@ -1176,7 +1194,7 @@ func (g *graph) setRelProp(r *Rel, key string, v any) error {
 			g.snapRelProp(r, key)
 			g.counters.Events.PropertiesSet++
 			delete(r.Props, key)
-			return g.persistRelProps(r)
+			return g.markRelPropDirty(r)
 		}
 		return nil
 	}
@@ -1186,7 +1204,33 @@ func (g *graph) setRelProp(r *Rel, key string, v any) error {
 	g.snapRelProp(r, key)
 	g.counters.Events.PropertiesSet++
 	r.Props[key] = v
-	return g.persistRelProps(r)
+	return g.markRelPropDirty(r)
+}
+
+// markNodePropDirty queues a node for its pending property UPDATE. The change is
+// already in n.Props; this only records that a write is outstanding, once per flush.
+func (g *graph) markNodePropDirty(n *Node) error {
+	if setBehindDisabled || g.nodePropSeen[n] {
+		if setBehindDisabled {
+			return g.persistNodeProps(n)
+		}
+		return nil
+	}
+	g.nodePropSeen[n] = true
+	g.pendNodeProps = append(g.pendNodeProps, n)
+	return nil
+}
+
+func (g *graph) markRelPropDirty(r *Rel) error {
+	if setBehindDisabled || g.relPropSeen[r] {
+		if setBehindDisabled {
+			return g.persistRelProps(r)
+		}
+		return nil
+	}
+	g.relPropSeen[r] = true
+	g.pendRelProps = append(g.pendRelProps, r)
+	return nil
 }
 
 func (g *graph) addLabels(n *Node, labels []string) error {
