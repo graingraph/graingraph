@@ -60,7 +60,12 @@ jobs:
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.goarch }}
-        run: go test -count=1 -race -timeout=5m ./...
+          # Wall-clock/perf-ratio assertions are skipped here. They are meaningless under
+          # the -race detector (instrumentation inflates both sides of any ratio) and the
+          # full path enumeration they do is machine-slow; see skipHeavyTiming in
+          # cypher/interp. Leave the var unset or "0" locally to run them.
+          GRAINGRAPH_SKIP_HEAVY: "1"
+        run: go test -count=1 -race -timeout=10m ./...
 
   govulncheck:
     name: Vulnerability Scan

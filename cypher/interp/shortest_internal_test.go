@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -212,7 +213,20 @@ func TestSelectedIterativeDeepeningAgrees(t *testing.T) {
 	}
 }
 
+// skipHeavyTiming skips a wall-clock/perf-ratio assertion when
+// GRAINGRAPH_SKIP_HEAVY is set to a non-zero, non-empty value. Such comparisons are
+// meaningless under the -race detector (instrumentation inflates both sides of any
+// ratio), and this test's full path enumeration over a dense graph pushes the interp
+// package's -race binary past CI's 5-minute timeout on slower runners; CI sets the var
+// to 1. Local and non-race runs leave it unset, so the ratio is still exercised there.
+func skipHeavyTiming(t *testing.T) {
+	if v := os.Getenv("GRAINGRAPH_SKIP_HEAVY"); v != "" && v != "0" {
+		t.Skip("heavy timing assertion skipped (GRAINGRAPH_SKIP_HEAVY=", v, ")")
+	}
+}
+
 func TestSelectedDeepeningIsFasterOnDenseGraphs(t *testing.T) {
+	skipHeavyTiming(t)
 	db := randomGraph(t, 5, 14, 90)
 	const q = "MATCH (a:N {i: 1}), (b:N {i: 9}), p = SHORTEST 1 (a)-[:R|S]->{1,9}(b) RETURN length(p) AS l"
 	start := time.Now()
