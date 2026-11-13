@@ -1,6 +1,11 @@
 module github.com/graingraph/graingraph
 
-go 1.26.9
+// The go directive selects the toolchain CI and releases build with. 1.26.11
+// fixes GO-2026-6859 (net/http MaxBytesReader header race) and
+// GO-2026-6809 (crypto/x509 compromised-intermediate handling), both of which
+// shipped in this project's own `graingraph-query` HTTP server. It supersedes the
+// 1.26.9 bump that closed GO-2026-6617.
+go 1.26.11
 
 require (
 	github.com/cucumber/godog v0.15.1
