@@ -12,7 +12,7 @@ import (
 )
 
 // Version is the graingraph-query server version reported by discovery and -version.
-const Version = "0.3.1"
+const Version = "0.4.0"
 
 // Config holds all runtime settings for the server.
 type Config struct {
