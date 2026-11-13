@@ -731,6 +731,84 @@ func (g *graph) scanPage(label string, hints []propHint, after int64, limit int)
 // scanRowsRead counts the node rows label and node scans have read (for tests).
 var scanRowsRead atomic.Int64
 
+// scanNodesByStringKey returns every live node whose property `key` equals one of
+// vals, keyed by that value so bucket[sv] holds the matching nodes in id order.
+// It runs one batched IN-over-json_each query instead of one json_extract = ?
+// scan per distinct value:
+//
+//	INSERT ... JSON (see bulk loader) → UNWIND list AS k MATCH (n:X {key: k}) …
+//
+// which is the common bulk-lookup shape. Only string values are batched; a
+// non-string property value on a returned node is skipped so no type-coercion
+// path silently widens, and nodes arrive in id order (ORDER BY n.id) so every
+// bucket sub-slice is also id-ordered — preserving the per-row scan result and
+// sequence exactly.
+func (g *graph) scanNodesByStringKey(label, key string, vals []string) (map[string][]*Node, error) {
+	out := make(map[string][]*Node, len(vals))
+	if len(vals) == 0 {
+		return out, nil
+	}
+	var sb strings.Builder
+	var args []any
+	sb.WriteString(`SELECT n.id, n.labels, n.props FROM nodes n WHERE `)
+	if label != "" {
+		sb.WriteString(`EXISTS (SELECT 1 FROM node_labels l WHERE l.node_id = n.id AND l.label = ?) AND `)
+		args = append(args, label)
+	}
+	// Inlined JSON path so an expression index on json_extract(props,'$."key"')
+	// serves the lookup; distinct string values ride in a single bound array.
+	sb.WriteString(`json_extract(n.props, '$."` + key + `"') IN (SELECT value FROM json_each(?)) ORDER BY n.id`)
+	args = append(args, stringsJSON(vals))
+	g.eng.noteScan(g.ctx, g.db, key, g.readOnly)
+	rows, err := g.db.QueryContext(g.ctx, sb.String(), args...)
+	if err != nil {
+		return out, err
+	}
+	var raw int
+	for rows.Next() {
+		raw++
+		var id int64
+		var labels, props string
+		if err := rows.Scan(&id, &labels, &props); err != nil {
+			rows.Close()
+			return out, err
+		}
+		var n *Node
+		if g.evictable {
+			n, err = g.readNode(id, labels, props)
+		} else {
+			n, err = g.internNode(id, labels, props)
+		}
+		if err != nil {
+			rows.Close()
+			return out, err
+		}
+		if n.Deleted {
+			continue
+		}
+		sv, ok := n.Props[key].(string)
+		if !ok {
+			continue // not a string-property node for a string key; the per-row path would skip it too
+		}
+		out[sv] = append(out[sv], n)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return out, err
+	}
+	scanRowsRead.Add(int64(raw))
+	return out, nil
+}
+
+// stringsJSON renders string values as a JSON array (via json.Marshal) — used as
+// the bound arg of IN-over-json_each so one query fetches every distinct key at
+// once. json.Marshal on []string never fails for plain Go strings.
+func stringsJSON(vals []string) string {
+	b, _ := json.Marshal(vals)
+	return string(b)
+}
+
 // cacheLimit is how many cached nodes, relationships and adjacency lists a
 // read-only statement keeps before trimCaches drops them.
 var cacheLimit = 50000

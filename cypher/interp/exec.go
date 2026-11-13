@@ -355,6 +355,15 @@ func (ex *exec) execMatch(cl *syntax.Match, st *qstate) error {
 	st.declare(vars...)
 	defer func(saved []pushedEq) { ex.pushed = saved }(ex.pushed)
 	ex.pushed = whereEqualities(cl.Where)
+
+	// Fast path: collapse one start-node scan per input row into one
+	// json_each IN query when the shape is a UNWIND-driven string-key bulk
+	// lookup; on any other shape returns handled=false and we fall through to
+	// the per-row scan unchanged.
+	if handled, err := ex.tryExecMatchBatched(cl, vars, st); handled {
+		return err
+	}
+
 	var out []row
 	for _, r := range st.rows {
 		matched := false
