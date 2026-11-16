@@ -15,6 +15,13 @@ func TestEvalParityC_Basic(t *testing.T) {
 	if !ok {
 		t.Fatalf("C eval failed")
 	}
-	// For now just ensure we got a result
 	_ = res
+}
+
+func TestEvalParityC_PropEq(t *testing.T) {
+	WithInterpC()()
+	if !interpCEnabled {
+		t.Skip("interp C not enabled")
+	}
+	// Placeholder for a.prop = 5 parity test
 }
