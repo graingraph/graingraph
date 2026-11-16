@@ -2,6 +2,13 @@ package vector
 
 import "math"
 
+var vectorCEnabled bool
+
+// WithVectorC enables the C vector kernels for benchmarking.
+func WithVectorC() func() {
+	return func() { vectorCEnabled = true }
+}
+
 // float32 kernels for the exhaustive vector search. They are written with eight
 // independent accumulators: a single running sum makes every addition wait for
 // the previous one, and splitting it lets the CPU overlap them. Measured on a
@@ -14,6 +21,9 @@ import "math"
 
 // Dot32 returns the dot product of a and b, which must have equal length.
 func Dot32(a, b []float32) float32 {
+	if vectorCEnabled {
+		return dot32C(a, b)
+	}
 	b = b[:len(a)]
 	var s0, s1, s2, s3, s4, s5, s6, s7 float32
 	n := len(a) &^ 7
@@ -36,6 +46,9 @@ func Dot32(a, b []float32) float32 {
 
 // SquaredL2 returns the squared Euclidean distance between a and b.
 func SquaredL2(a, b []float32) float32 {
+	if vectorCEnabled {
+		return squaredL2C(a, b)
+	}
 	b = b[:len(a)]
 	var s0, s1, s2, s3, s4, s5, s6, s7 float32
 	n := len(a) &^ 7
@@ -66,11 +79,19 @@ func SquaredL2(a, b []float32) float32 {
 }
 
 // Norm32 returns the Euclidean norm of a.
-func Norm32(a []float32) float32 { return float32(math.Sqrt(float64(Dot32(a, a)))) }
+func Norm32(a []float32) float32 {
+	if vectorCEnabled {
+		return norm32C(a)
+	}
+	return float32(math.Sqrt(float64(Dot32(a, a))))
+}
 
 // Normalize32 scales a to unit length in place and reports whether it could
 // (a zero vector cannot be normalised and is left as it is).
 func Normalize32(a []float32) bool {
+	if vectorCEnabled {
+		return normalize32C(a)
+	}
 	n := Norm32(a)
 	if n == 0 {
 		return false
