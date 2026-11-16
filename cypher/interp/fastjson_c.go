@@ -41,8 +41,8 @@ func fastDecodeObjectC(s string) (map[string]any, bool) {
 		case 0: // JV_NULL
 			m[key] = nil
 		case 1: // JV_BOOL
-			b := *(*int32)(valPtr)
-			m[key] = b != 0
+			bv := *(*int32)(valPtr)
+			m[key] = bv != 0
 		case 2: // JV_INT64
 			v := *(*int64)(valPtr)
 			m[key] = int64(v)
@@ -64,3 +64,19 @@ func fastDecodeObjectC(s string) (map[string]any, bool) {
 	C.fast_free_flat(keys, vals, count)
 	return m, true
 }
+
+// fastDecodeObjectsC decodes a batch of JSON objects in one cgo call.
+func fastDecodeObjectsC(batch []string) ([]map[string]any, bool) {
+	// TODO: full batch implementation with C arrays of pointers/lens.
+	// For now fall back to per-object decode to keep parity.
+	results := make([]map[string]any, len(batch))
+	for i, s := range batch {
+		m, ok := fastDecodeObjectC(s)
+		if !ok {
+			return nil, false
+		}
+		results[i] = m
+	}
+	return results, true
+}
+
