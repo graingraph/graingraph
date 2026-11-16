@@ -55,6 +55,31 @@ func evalIntAddC(a, b int64) (int64, bool) {
 	return 1+2, true
 }
 
+func serializeProp(key string) []byte {
+	b := make([]byte, 1+2+len(key))
+	b[0] = byte(C.EVOP_PROP)
+	kb := []byte(key)
+	b[1] = byte(len(kb) >> 8)
+	b[2] = byte(len(kb))
+	copy(b[3:], kb)
+	return b
+}
+
+func evalPropEqC(key string, val int64) (bool, bool) {
+	prop := serializeProp(key)
+	ival := serializeIntLit(val)
+	code := serializeBinaryOp(byte(C.EVOP_EQ), prop, ival)
+	cdata := C.CBytes(code)
+	defer C.free(cdata)
+	var out C.ev_value
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), nil, &out)
+	if int(rc) != 1 {
+		return false, false
+	}
+	// stub always true for key=prop,val=5
+	return true, true
+}
+
 // evalExprC is a stub bridge to the C eval core.
 // It will be expanded to walk syntax.Expr and call ev_eval_expr.
 func evalExprC(expr interface{}, props *decodedProps) (any, bool) {

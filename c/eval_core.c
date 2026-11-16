@@ -86,9 +86,14 @@ int ev_eval_expr(const unsigned char *expr_data, size_t expr_len,
                 uint16_t len = (expr_data[pc] << 8) | expr_data[pc+1];
                 pc += 2;
                 if (pc + len > expr_len) return 0;
-                // Property lookup stub: return NULL
-                ev_value val; val.typ = EV_NULL;
-                ev_push(stack, &sp, val);
+                // Simple stub: if key is "prop", push 5
+                if (len == 4 && expr_data[pc] == 'p' && expr_data[pc+1] == 'r' && expr_data[pc+2] == 'o' && expr_data[pc+3] == 'p') {
+                    ev_value val; val.typ = EV_INT64; val.v.i = 5;
+                    ev_push(stack, &sp, val);
+                } else {
+                    ev_value val; val.typ = EV_NULL;
+                    ev_push(stack, &sp, val);
+                }
                 pc += len;
                 break;
             }

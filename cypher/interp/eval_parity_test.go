@@ -23,5 +23,8 @@ func TestEvalParityC_PropEq(t *testing.T) {
 	if !interpCEnabled {
 		t.Skip("interp C not enabled")
 	}
-	// Placeholder for a.prop = 5 parity test
+	ok, _ := evalPropEqC("prop", 5)
+	if !ok {
+		t.Fatalf("prop eq eval failed")
+	}
 }
