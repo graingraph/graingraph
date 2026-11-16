@@ -30,5 +30,7 @@ func evalExprC(expr interface{}, props *decodedProps) (any, bool) {
 	// Stub: not implemented yet
 	_ = expr
 	_ = props
+	// For regex lazy fallback, the C core returns 2 to indicate defer to Go.
+	// The Go evaluator will handle =~ via standard regex.
 	return nil, false
 }
