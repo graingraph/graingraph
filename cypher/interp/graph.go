@@ -732,9 +732,15 @@ func (g *graph) scanPage(label string, hints []propHint, after int64, limit int)
 			}
 			nodes = make([]*Node, 0, len(ids))
 			for i, id := range ids {
+				if n, ok := g.nodes[id]; ok {
+					// reuse cached node
+					if !n.Deleted {
+						nodes = append(nodes, n)
+					}
+					continue
+				}
 				propsMap := decoded[i]
 				if propsMap == nil {
-					// keep existing behavior
 					propsMap = map[string]any{}
 				}
 				n := &Node{ID: id, Labels: g.labelsOf(labelsArr[i]), Props: propsMap}
