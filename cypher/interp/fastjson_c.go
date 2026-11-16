@@ -98,15 +98,60 @@ func fastDecodeObjectsC(batch []string) ([]map[string]any, bool) {
 		*(*unsafe.Pointer)(unsafe.Pointer(uintptr(uintptr(datas)) + uintptr(i)*unsafe.Sizeof(uintptr(0)))) = ptrs[i]
 		*(*C.size_t)(unsafe.Pointer(uintptr(uintptr(lensArr)) + uintptr(i)*unsafe.Sizeof(C.size_t(0)))) = lensGo[i]
 	}
-	// Use the existing single-object path for now – batch API wiring is in C,
-	// full Go conversion for batch results is left as TODO for safety.
-	// For benchmark we fall back to per-object decode to keep parity.
+	// allocate output arrays
+	keysArr := C.malloc(C.size_t(n) * C.size_t(unsafe.Sizeof(uintptr(0))))
+	valsArr := C.malloc(C.size_t(n) * C.size_t(unsafe.Sizeof(uintptr(0))))
+	countsArr := C.malloc(C.size_t(n) * C.size_t(unsafe.Sizeof(C.size_t(0))))
+	if keysArr == nil || valsArr == nil || countsArr == nil {
+		return nil, false
+	}
+	defer C.free(keysArr)
+	defer C.free(valsArr)
+	defer C.free(countsArr)
+	if C.fast_decode_batch_flat((**C.uchar)(unsafe.Pointer(datas)), (*C.size_t)(unsafe.Pointer(lensArr)), C.size_t(n), (***C.char)(unsafe.Pointer(keysArr)), (**C.FlatValue)(unsafe.Pointer(valsArr)), (*C.size_t)(unsafe.Pointer(countsArr))) == 0 {
+		return nil, false
+	}
 	results := make([]map[string]any, n)
-	for i, s := range batch {
-		m, ok := fastDecodeObjectC(s)
-		if !ok {
+	for i := 0; i < n; i++ {
+		keysPtr := *(***C.char)(unsafe.Pointer(uintptr(uintptr(keysArr)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
+		valsPtr := *(* *C.FlatValue)(unsafe.Pointer(uintptr(uintptr(valsArr)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
+		count := *(*C.size_t)(unsafe.Pointer(uintptr(uintptr(countsArr)) + uintptr(i)*unsafe.Sizeof(C.size_t(0))))
+		if keysPtr == nil || valsPtr == nil {
+			C.fast_free_flat(nil, nil, 0)
 			return nil, false
 		}
+		m := make(map[string]any, int(count))
+		keysSlice := (*[1 << 30]*C.char)(unsafe.Pointer(keysPtr))
+		valsPtrRaw := unsafe.Pointer(valsPtr)
+		for j := 0; j < int(count); j++ {
+			key := C.GoString(keysSlice[j])
+			typ := *(*uint8)(unsafe.Pointer(uintptr(valsPtrRaw) + uintptr(j)*16))
+			valPtr := unsafe.Pointer(uintptr(valsPtrRaw) + uintptr(j)*16 + 8)
+			switch typ {
+			case 0:
+				m[key] = nil
+			case 1:
+				bv := *(*int32)(valPtr)
+				m[key] = bv != 0
+			case 2:
+				v := *(*int64)(valPtr)
+				m[key] = int64(v)
+			case 3:
+				v := *(*float64)(valPtr)
+				m[key] = float64(v)
+			case 4:
+				ptr := *(*unsafe.Pointer)(valPtr)
+				if ptr != nil {
+					m[key] = C.GoString((*C.char)(ptr))
+				} else {
+					m[key] = ""
+				}
+			default:
+				C.fast_free_flat(keysPtr, valsPtr, count)
+				return nil, false
+			}
+		}
+		C.fast_free_flat(keysPtr, valsPtr, count)
 		results[i] = m
 	}
 	return results, true

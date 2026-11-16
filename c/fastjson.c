@@ -295,12 +295,8 @@ int fast_decode_object_flat_from_bytes(const unsigned char *data, size_t len,
 }
 
 int fast_decode_batch_flat(const unsigned char * const *datas, const size_t *lens, size_t count,
-                           char ****out_keys, FlatValue ***out_vals, size_t **out_counts){
-    if(!datas || !lens || count==0) return 0;
-    *out_keys = malloc(count * sizeof(char**));
-    *out_vals = malloc(count * sizeof(FlatValue*));
-    *out_counts = malloc(count * sizeof(size_t));
-    if(!*out_keys || !*out_vals || !*out_counts) return 0;
+                           char ***out_keys, FlatValue **out_vals, size_t *out_counts){
+    if(!datas || !lens || !out_keys || !out_vals || !out_counts || count==0) return 0;
     for(size_t i=0;i<count;i++){
         char **k = NULL;
         FlatValue *v = NULL;
@@ -308,14 +304,13 @@ int fast_decode_batch_flat(const unsigned char * const *datas, const size_t *len
         if(!fast_decode_object_flat_from_bytes(datas[i], lens[i], &k, &v, &c)){
             // cleanup already decoded
             for(size_t j=0;j<i;j++){
-                fast_free_flat((*out_keys)[j], (*out_vals)[j], (*out_counts)[j]);
+                fast_free_flat(out_keys[j], out_vals[j], out_counts[j]);
             }
-            free(*out_keys); free(*out_vals); free(*out_counts);
             return 0;
         }
-        (*out_keys)[i] = k;
-        (*out_vals)[i] = v;
-        (*out_counts)[i] = c;
+        out_keys[i] = k;
+        out_vals[i] = v;
+        out_counts[i] = c;
     }
     return 1;
 }

@@ -41,7 +41,7 @@ int fast_decode_object_flat(const char *s, size_t len,
 int fast_decode_object_flat_from_bytes(const unsigned char *data, size_t len,
                                        char ***out_keys, FlatValue **out_vals, size_t *out_count);
 int fast_decode_batch_flat(const unsigned char * const *datas, const size_t *lens, size_t count,
-                           char ****out_keys, FlatValue ***out_vals, size_t **out_counts);
+                           char ***out_keys, FlatValue **out_vals, size_t *out_counts);
 void fast_free_flat(char **keys, FlatValue *vals, size_t count);
 
 jv_type json_value_type(const JsonValue *v);

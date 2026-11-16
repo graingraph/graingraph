@@ -693,6 +693,59 @@ func (g *graph) scanPage(label string, hints []propHint, after int64, limit int)
 	if err != nil {
 		return nil, 0, 0, err
 	}
+	// Collect rows for batch decode when fastjson C is enabled and graph is evictable.
+	useBatch := g.evictable && fastJSONCEnabled
+	if useBatch {
+		ids := make([]int64, 0, limit)
+		labelsArr := make([]string, 0, limit)
+		propsArr := make([]string, 0, limit)
+		for rows.Next() {
+			var id int64
+			var labels, props string
+			if err := rows.Scan(&id, &labels, &props); err != nil {
+				rows.Close()
+				return nil, 0, 0, err
+			}
+			raw++
+			last = id
+			ids = append(ids, id)
+			labelsArr = append(labelsArr, labels)
+			propsArr = append(propsArr, props)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if len(propsArr) > 0 {
+			decoded := make([]map[string]any, len(propsArr))
+			// decode props in batch
+			if maps, ok := fastDecodeObjectsC(propsArr); ok {
+				decoded = maps
+			} else {
+				// fallback per-row
+				for i, p := range propsArr {
+					if m, err2 := decodeProps(p); err2 == nil {
+						decoded[i] = m
+					}
+				}
+			}
+			nodes = make([]*Node, 0, len(ids))
+			for i, id := range ids {
+				propsMap := decoded[i]
+				if propsMap == nil {
+					// keep existing behavior
+					propsMap = map[string]any{}
+				}
+				n := &Node{ID: id, Labels: g.labelsOf(labelsArr[i]), Props: propsMap}
+				if !n.Deleted {
+					nodes = append(nodes, n)
+				}
+			}
+		}
+		scanRowsRead.Add(int64(raw))
+		return nodes, last, raw, nil
+	}
 	nodes = make([]*Node, 0, limit)
 	for rows.Next() {
 		var id int64
