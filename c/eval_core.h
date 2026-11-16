@@ -49,7 +49,7 @@ typedef enum {
 } ev_opcode;
 
 typedef struct {
-    ev_type type;
+    ev_type typ;
     union {
         bool b;
         int64_t i;

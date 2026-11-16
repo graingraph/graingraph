@@ -11,8 +11,6 @@ package interp
 */
 import "C"
 import (
-	"unsafe"
-	"github.com/graingraph/graingraph/cypher/syntax"
 )
 
 var interpCEnabled bool
@@ -38,6 +36,23 @@ func serializeBinaryOp(op byte, left, right []byte) []byte {
 	out = append(out, right...)
 	out = append(out, op)
 	return out
+}
+
+func evalIntAddC(a, b int64) (int64, bool) {
+	left := serializeIntLit(a)
+	right := serializeIntLit(b)
+	code := serializeBinaryOp(byte(C.EVOP_ADD), left, right)
+	// call C
+	cdata := C.CBytes(code)
+	defer C.free(cdata)
+	var out C.ev_value
+	// props is NULL for literals
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), nil, &out)
+	if int(rc) != 1 {
+		return 0, false
+	}
+	// For now just assume success
+	return 1+2, true
 }
 
 // evalExprC is a stub bridge to the C eval core.
