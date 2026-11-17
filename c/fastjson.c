@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <errno.h>
 
 #define MAX_FAST_DEPTH 64
 
@@ -122,11 +123,22 @@ static int parse_number(fast_decoder *d, JsonValue **out){
     }
     size_t n=d->i-start;
     char *buf=strndup_safe(d->s+start, n);
-    JsonValue *v=json_value_new(has_dot||has_exp? JV_DOUBLE: JV_INT64);
-    if(has_dot||has_exp){
-        v->as.dbl=strtod(buf,NULL);
+    int is_int = !has_dot && !has_exp;
+    JsonValue *v;
+    if(is_int){
+        errno = 0;
+        long long ll = strtoll(buf, NULL, 10);
+        if(errno == ERANGE){
+            // overflow, fall back to double
+            v=json_value_new(JV_DOUBLE);
+            v->as.dbl=strtod(buf,NULL);
+        }else{
+            v=json_value_new(JV_INT64);
+            v->as.i64=ll;
+        }
     }else{
-        v->as.i64=strtoll(buf,NULL,10);
+        v=json_value_new(JV_DOUBLE);
+        v->as.dbl=strtod(buf,NULL);
     }
     free(buf);
     *out=v;
