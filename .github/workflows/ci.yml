@@ -44,6 +44,9 @@ jobs:
       - name: Verify module
         run: go mod verify
 
+      - name: Generate C libs
+        run: go generate ./...
+
       - name: Build
         env:
           GOOS: ${{ matrix.os }}

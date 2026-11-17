@@ -1,5 +1,6 @@
-//go:build cgo
+//go:build cgo && (linux || darwin)
 // +build cgo
+// +build linux darwin
 
 package interp
 
