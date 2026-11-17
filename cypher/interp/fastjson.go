@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-var fastJSONCEnabled = true
+var fastJSONCEnabled = false
 
 // WithFastJSONC enables the C fastjson decoder for benchmarking.
 func WithFastJSONC() func() {
