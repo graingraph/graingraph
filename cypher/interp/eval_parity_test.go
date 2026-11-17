@@ -28,3 +28,14 @@ func TestEvalParityC_PropEq(t *testing.T) {
 		t.Fatalf("prop eq eval failed")
 	}
 }
+
+func TestEvalParityC_And(t *testing.T) {
+	WithInterpC()()
+	if !interpCEnabled {
+		t.Skip("interp C not enabled")
+	}
+	ok, _ := evalAndC(true, true)
+	if !ok {
+		t.Fatalf("and eval failed")
+	}
+}

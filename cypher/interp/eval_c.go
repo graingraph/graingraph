@@ -66,6 +66,27 @@ func serializeProp(key string) []byte {
 	return b
 }
 
+func evalAndC(a, b bool) (bool, bool) {
+	left := serializeBool(a)
+	right := serializeBool(b)
+	code := serializeBinaryOp(byte(C.EVOP_AND), left, right)
+	cdata := C.CBytes(code)
+	defer C.free(cdata)
+	var out C.ev_value
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), nil, &out)
+	return true, int(rc) == 1
+}
+
+func serializeBool(v bool) []byte {
+	b := make([]byte, 2)
+	b[0] = byte(C.EVOP_BOOL)
+	b[1] = 0
+	if v {
+		b[1] = 1
+	}
+	return b
+}
+
 func evalPropEqC(key string, val int64) (bool, bool) {
 	prop := serializeProp(key)
 	ival := serializeIntLit(val)
