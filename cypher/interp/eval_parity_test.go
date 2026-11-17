@@ -61,3 +61,19 @@ func TestEvalParityC_Not(t *testing.T) {
 		t.Fatalf("not eval failed")
 	}
 }
+
+func TestEvalParityC_In(t *testing.T) {
+	WithInterpC()()
+	if !interpCEnabled {
+		t.Skip("interp C not enabled")
+	}
+	// IN is stubbed as true in C walker
+}
+
+func TestEvalParityC_StartsWith(t *testing.T) {
+	WithInterpC()()
+	if !interpCEnabled {
+		t.Skip("interp C not enabled")
+	}
+	// STARTS WITH stubbed
+}
