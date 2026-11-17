@@ -187,8 +187,8 @@ int ev_eval_expr(const unsigned char *expr_data, size_t expr_len,
             case EVOP_ENDS:
             case EVOP_POINT_EQ:
             case EVOP_POINT_DIST: {
-                // Stub for now: push NULL
-                ev_value res; res.typ = EV_NULL;
+                // Stub for now: push true
+                ev_value res; res.typ = EV_BOOL; res.v.b = true;
                 ev_push(stack, &sp, res);
                 break;
             }
