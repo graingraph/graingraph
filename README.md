@@ -65,9 +65,24 @@ Unsupported features return `ErrUnsupportedCypher` — they never silently produ
 go get github.com/graingraph/graingraph
 ```
 
-Requires Go 1.26.9+ (earlier 1.26 releases have a `net/http` vulnerability, GO-2026-6617, that affects `graingraph-query`). No CGO required. Works on Linux (amd64/arm64), macOS (arm64), and Windows (amd64).
+Requires Go 1.26.9+ (earlier 1.26 releases have a `net/http` vulnerability, GO-2026-6617, that affects `graingraph-query`). No CGO required for the pure-Go build. Works on Linux (amd64/arm64), macOS (arm64), and Windows (amd64).
 
----
+### Hybrid C/Go performance build
+
+A hybrid build with C-accelerated hot paths is available via cgo. The Go API, Cypher parser and analyzer remain unchanged; the interpreter's JSON decoder, vector search kernels and expression evaluation are compiled to C for speed.
+
+```bash
+CGO_ENABLED=1 go build ./...
+CGO_ENABLED=1 go test ./...
+```
+
+The three C components are enabled by default for CGO builds:
+
+* **FastJSON C** – hand-written JSON property decoder, batch decode and lazy `decodedProps` handles
+* **Vector kernels C** – contiguous float32 matrix search kernels
+* **Eval core C** – stack machine for expression evaluation with property lookup, arithmetic, comparisons, boolean logic, `IN`, `STARTS WITH`/`CONTAINS`/`ENDS`
+
+The feature flags `WithFastJSONC()`, `WithVectorC()`, `WithInterpC()` exist for explicit control, but defaults are on for CGO builds. The pure-Go build with `CGO_ENABLED=0` works unchanged.
 
 ## Quick Start
 
