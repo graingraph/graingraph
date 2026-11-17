@@ -2,7 +2,7 @@ package vector
 
 import "math"
 
-var vectorCEnabled = true
+var vectorCEnabled bool
 
 // WithVectorC enables the C vector kernels for benchmarking.
 func WithVectorC() func() {
