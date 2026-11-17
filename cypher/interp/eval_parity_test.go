@@ -39,3 +39,25 @@ func TestEvalParityC_And(t *testing.T) {
 		t.Fatalf("and eval failed")
 	}
 }
+
+func TestEvalParityC_Or(t *testing.T) {
+	WithInterpC()()
+	if !interpCEnabled {
+		t.Skip("interp C not enabled")
+	}
+	ok, _ := evalOrC(false, true)
+	if !ok {
+		t.Fatalf("or eval failed")
+	}
+}
+
+func TestEvalParityC_Not(t *testing.T) {
+	WithInterpC()()
+	if !interpCEnabled {
+		t.Skip("interp C not enabled")
+	}
+	ok, _ := evalNotC(true)
+	if !ok {
+		t.Fatalf("not eval failed")
+	}
+}

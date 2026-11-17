@@ -77,6 +77,29 @@ func evalAndC(a, b bool) (bool, bool) {
 	return true, int(rc) == 1
 }
 
+func evalOrC(a, b bool) (bool, bool) {
+	left := serializeBool(a)
+	right := serializeBool(b)
+	code := serializeBinaryOp(byte(C.EVOP_OR), left, right)
+	cdata := C.CBytes(code)
+	defer C.free(cdata)
+	var out C.ev_value
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), nil, &out)
+	return true, int(rc) == 1
+}
+
+func evalNotC(a bool) (bool, bool) {
+	b := serializeBool(a)
+	code := make([]byte, 0, len(b)+1)
+	code = append(code, b...)
+	code = append(code, byte(C.EVOP_NOT))
+	cdata := C.CBytes(code)
+	defer C.free(cdata)
+	var out C.ev_value
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), nil, &out)
+	return true, int(rc) == 1
+}
+
 func serializeBool(v bool) []byte {
 	b := make([]byte, 2)
 	b[0] = byte(C.EVOP_BOOL)
