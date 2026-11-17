@@ -86,15 +86,35 @@ int ev_eval_expr(const unsigned char *expr_data, size_t expr_len,
                 uint16_t len = (expr_data[pc] << 8) | expr_data[pc+1];
                 pc += 2;
                 if (pc + len > expr_len) return 0;
-                // Simple stub: if key is "prop", push 5
-                if (len == 4 && expr_data[pc] == 'p' && expr_data[pc+1] == 'r' && expr_data[pc+2] == 'o' && expr_data[pc+3] == 'p') {
-                    ev_value val; val.typ = EV_INT64; val.v.i = 5;
-                    ev_push(stack, &sp, val);
-                } else {
-                    ev_value val; val.typ = EV_NULL;
-                    ev_push(stack, &sp, val);
+                // Build key string from bytes (no null terminator)
+                char key[256];
+                if (len >= sizeof(key)) return 0;
+                memcpy(key, expr_data + pc, len);
+                key[len] = '\0';
+                ev_value val; val.typ = EV_NULL;
+                if (props && props->keys && props->vals) {
+                    for (size_t i = 0; i < props->count; i++) {
+                        const char *k = props->keys[i];
+                        if (k && strcmp(k, key) == 0) {
+                            // Simplified: assume int64 at offset 8
+                            const unsigned char *vptr = (const unsigned char *)props->vals + i * 16;
+                            uint8_t typ = vptr[0];
+                            if (typ == 2) { // int64
+                                int64_t vi = *(int64_t *)(vptr + 8);
+                                val.typ = EV_INT64;
+                                val.v.i = vi;
+                                ev_push(stack, &sp, val);
+                                pc += len;
+                                goto prop_done;
+                            }
+                        }
+                    }
                 }
+                ev_value val2; val2.typ = EV_NULL;
+                ev_push(stack, &sp, val2);
                 pc += len;
+                break;
+prop_done:
                 break;
             }
             case EVOP_ADD:

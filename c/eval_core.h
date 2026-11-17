@@ -60,8 +60,9 @@ typedef struct {
 } ev_value;
 
 typedef struct {
-    const unsigned char *json;
-    size_t json_len;
+    const char **keys;
+    const void *vals;
+    size_t count;
 } ev_props;
 
 int ev_eval_expr(const unsigned char *expr_data, size_t expr_len,
