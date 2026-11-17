@@ -77,6 +77,17 @@ func evalAndC(a, b bool) (bool, bool) {
 	return true, int(rc) == 1
 }
 
+func evalInC(a, b int64) (bool, bool) {
+	left := serializeIntLit(a)
+	right := serializeIntLit(b)
+	code := serializeBinaryOp(byte(C.EVOP_IN), left, right)
+	cdata := C.CBytes(code)
+	defer C.free(cdata)
+	var out C.ev_value
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), nil, &out)
+	return true, int(rc) == 1
+}
+
 func evalOrC(a, b bool) (bool, bool) {
 	left := serializeBool(a)
 	right := serializeBool(b)

@@ -201,7 +201,18 @@ prop_done:
             }
             case EVOP_TEMP_ADD:
             case EVOP_TEMP_SUB:
-            case EVOP_IN:
+            case EVOP_IN: {
+                if (sp < 2) return 0;
+                ev_value b = ev_pop(stack, &sp);
+                ev_value a = ev_pop(stack, &sp);
+                bool eq = false;
+                if (a.typ == EV_INT64 && b.typ == EV_INT64) {
+                    eq = a.v.i == b.v.i;
+                }
+                ev_value res; res.typ = EV_BOOL; res.v.b = eq;
+                ev_push(stack, &sp, res);
+                break;
+            }
             case EVOP_STARTS:
             case EVOP_CONTAINS:
             case EVOP_ENDS:
