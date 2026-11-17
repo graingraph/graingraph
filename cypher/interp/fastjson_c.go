@@ -129,7 +129,7 @@ func fastDecodeObjectsHandles(batch []string) ([]*decodedProps, bool) {
 		if len(b) > 0 {
 			ptrs[i] = unsafe.Pointer(&b[0])
 		} else {
-			ptrs[i] = unsafe.Pointer(uintptr(0))
+			ptrs[i] = nil
 		}
 		lensGo[i] = C.size_t(len(s))
 	}
@@ -141,8 +141,10 @@ func fastDecodeObjectsHandles(batch []string) ([]*decodedProps, bool) {
 	defer C.free(datas)
 	defer C.free(lensArr)
 	for i := 0; i < n; i++ {
-		*(*unsafe.Pointer)(unsafe.Pointer(uintptr(uintptr(datas)) + uintptr(i)*unsafe.Sizeof(uintptr(0)))) = ptrs[i]
-		*(*C.size_t)(unsafe.Pointer(uintptr(uintptr(lensArr)) + uintptr(i)*unsafe.Sizeof(C.size_t(0)))) = lensGo[i]
+		p := unsafe.Add(unsafe.Pointer(datas), uintptr(i)*unsafe.Sizeof(uintptr(0)))
+		*(*unsafe.Pointer)(p) = ptrs[i]
+		p2 := unsafe.Add(unsafe.Pointer(lensArr), uintptr(i)*unsafe.Sizeof(C.size_t(0)))
+		*(*C.size_t)(p2) = lensGo[i]
 	}
 	keysArr := C.malloc(C.size_t(n) * C.size_t(unsafe.Sizeof(uintptr(0))))
 	valsArr := C.malloc(C.size_t(n) * C.size_t(unsafe.Sizeof(uintptr(0))))
@@ -158,10 +160,13 @@ func fastDecodeObjectsHandles(batch []string) ([]*decodedProps, bool) {
 	}
 	results := make([]*decodedProps, n)
 	for i := 0; i < n; i++ {
-		keysPtr := *(***C.char)(unsafe.Pointer(uintptr(uintptr(keysArr)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
-		valsPtr := *(* *C.FlatValue)(unsafe.Pointer(uintptr(uintptr(valsArr)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
-		count := *(*C.size_t)(unsafe.Pointer(uintptr(uintptr(countsArr)) + uintptr(i)*unsafe.Sizeof(C.size_t(0))))
-		if keysPtr == nil || valsPtr == nil {
+		pKeys := unsafe.Add(unsafe.Pointer(keysArr), uintptr(i)*unsafe.Sizeof(uintptr(0)))
+		keysPtr := *(*unsafe.Pointer)(pKeys)
+		pVals := unsafe.Add(unsafe.Pointer(valsArr), uintptr(i)*unsafe.Sizeof(uintptr(0)))
+		valsPtrRaw := *(*unsafe.Pointer)(pVals)
+		pCounts := unsafe.Add(unsafe.Pointer(countsArr), uintptr(i)*unsafe.Sizeof(C.size_t(0)))
+		count := *(*C.size_t)(pCounts)
+		if keysPtr == nil || valsPtrRaw == nil {
 			// free already allocated
 			for j := 0; j < i; j++ {
 				results[j].release()
@@ -170,7 +175,7 @@ func fastDecodeObjectsHandles(batch []string) ([]*decodedProps, bool) {
 		}
 		results[i] = &decodedProps{
 			keys:  (**C.char)(unsafe.Pointer(keysPtr)),
-			vals:  valsPtr,
+			vals:  (*C.FlatValue)(unsafe.Pointer(valsPtrRaw)),
 			count: count,
 		}
 	}
