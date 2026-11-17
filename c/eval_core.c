@@ -110,17 +110,29 @@ int ev_eval_expr(const unsigned char *expr_data, size_t expr_len,
                     for (size_t i = 0; i < props->count; i++) {
                         const char *k = props->keys[i];
                         if (k && strcmp(k, key) == 0) {
-                            // Simplified: assume int64 at offset 8
                             const unsigned char *vptr = (const unsigned char *)props->vals + i * 16;
                             uint8_t typ = vptr[0];
-                            if (typ == 2) { // int64
-                                int64_t vi = *(int64_t *)(vptr + 8);
+                            val.typ = EV_NULL;
+                            if (typ == 0) {
+                                val.typ = EV_NULL;
+                            } else if (typ == 1) {
+                                val.typ = EV_BOOL;
+                                int32_t b = *(int32_t *)(vptr + 8);
+                                val.v.b = b != 0;
+                            } else if (typ == 2) {
                                 val.typ = EV_INT64;
-                                val.v.i = vi;
-                                ev_push(stack, &sp, val);
-                                pc += len;
-                                goto prop_done;
+                                val.v.i = *(int64_t *)(vptr + 8);
+                            } else if (typ == 3) {
+                                val.typ = EV_DOUBLE;
+                                val.v.d = *(double *)(vptr + 8);
+                            } else if (typ == 4) {
+                                val.typ = EV_STRING;
+                                // FlatValue v.str is pointer at offset 8
+                                val.v.s = *(const char **)(vptr + 8);
                             }
+                            ev_push(stack, &sp, val);
+                            pc += len;
+                            goto prop_done;
                         }
                     }
                 }

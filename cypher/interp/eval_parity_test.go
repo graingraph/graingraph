@@ -83,3 +83,14 @@ func TestEvalParityC_StartsWith(t *testing.T) {
 		t.Fatalf("starts with eval failed")
 	}
 }
+
+func TestEvalParityC_PropStringStarts(t *testing.T) {
+	WithInterpC()()
+	if !interpCEnabled {
+		t.Skip("interp C not enabled")
+	}
+	_, ok := evalPropStringStartsC("name", "hello")
+	if !ok {
+		t.Fatalf("prop string starts failed")
+	}
+}

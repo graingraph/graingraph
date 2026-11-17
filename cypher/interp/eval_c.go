@@ -111,6 +111,37 @@ func evalStartsC(a, b string) (bool, bool) {
 	return true, int(rc) == 1
 }
 
+func evalPropStringStartsC(key, prefix string) (bool, bool) {
+	prop := serializeProp(key)
+	pref := serializeString(prefix)
+	code := serializeBinaryOp(byte(C.EVOP_STARTS), prop, pref)
+	cdata := C.CBytes(code)
+	defer C.free(cdata)
+	// build props with string value
+	cKey := C.CString(key)
+	defer C.free(unsafe.Pointer(cKey))
+	keysArr := C.malloc(C.size_t(1) * C.size_t(unsafe.Sizeof(uintptr(0))))
+	*(*unsafe.Pointer)(keysArr) = unsafe.Pointer(cKey)
+	flat := C.malloc(C.size_t(16))
+	if flat == nil {
+		return false, false
+	}
+	defer C.free(flat)
+	*(*C.uchar)(unsafe.Pointer(flat)) = 4 // string
+	cVal := C.CString("hello world")
+	defer C.free(unsafe.Pointer(cVal))
+	*(*unsafe.Pointer)(unsafe.Pointer(uintptr(flat) + 8)) = unsafe.Pointer(cVal)
+	props := C.ev_props{
+		keys:  (**C.char)(unsafe.Pointer(keysArr)),
+		vals:  unsafe.Pointer(flat),
+		count: 1,
+	}
+	var out C.ev_value
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), &props, &out)
+	C.free(keysArr)
+	return true, int(rc) == 1
+}
+
 func evalNotC(a bool) (bool, bool) {
 	b := serializeBool(a)
 	code := make([]byte, 0, len(b)+1)
