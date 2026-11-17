@@ -176,3 +176,49 @@ func fastDecodeObjectsHandles(batch []string) ([]*decodedProps, bool) {
 	return results, true
 }
 
+// fastDecodeObjectsC is a compatibility shim for existing callers.
+func fastDecodeObjectsC(batch []string) ([]map[string]any, bool) {
+	handles, ok := fastDecodeObjectsHandles(batch)
+	if !ok {
+		return nil, false
+	}
+	out := make([]map[string]any, len(handles))
+	for i, h := range handles {
+		if h == nil {
+			out[i] = map[string]any{}
+			continue
+		}
+		m := make(map[string]any)
+		keysSlice := (*[1 << 30]*C.char)(unsafe.Pointer(h.keys))
+		valsPtr := unsafe.Pointer(h.vals)
+		for j := 0; j < int(h.count); j++ {
+			key := C.GoString(keysSlice[j])
+			typ := *(*uint8)(unsafe.Pointer(uintptr(valsPtr) + uintptr(j)*16))
+			valPtr := unsafe.Pointer(uintptr(valsPtr) + uintptr(j)*16 + 8)
+			switch typ {
+			case 0:
+				m[key] = nil
+			case 1:
+				bv := *(*int32)(valPtr)
+				m[key] = bv != 0
+			case 2:
+				v := *(*int64)(valPtr)
+				m[key] = int64(v)
+			case 3:
+				v := *(*float64)(valPtr)
+				m[key] = float64(v)
+			case 4:
+				ptr := *(*unsafe.Pointer)(valPtr)
+				if ptr != nil {
+					m[key] = C.GoString((*C.char)(ptr))
+				} else {
+					m[key] = ""
+				}
+			}
+		}
+		h.release()
+		out[i] = m
+	}
+	return out, true
+}
+

@@ -39,3 +39,9 @@ dist/
 
 # local csvImport benchmark harness and its large data sets (not part of the repository)
 /examples/csvImport/
+
+# C files build files
+*.obj
+*.a
+build/*.o
+build/*.a

@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-16",
+  "package": "github.com/graingraph/graingraph/cypher/interp",
+  "benches": [
+    {
+      "name": "BenchmarkDecodeProps/company6",
+      "ns_per_op": 312.6,
+      "bytes_per_op": 400,
+      "allocs_per_op": 7
+    },
+    {
+      "name": "BenchmarkDecodeProps/person2",
+      "ns_per_op": 149.8,
+      "bytes_per_op": 352,
+      "allocs_per_op": 3
+    },
+    {
+      "name": "BenchmarkDecodeProps/mixed",
+      "ns_per_op": 477.7,
+      "bytes_per_op": 864,
+      "allocs_per_op": 12
+    }
+  ],
+  "notes": "CGO_ENABLED=1, fastJSONCEnabled off, flat primitive table API in place, cgo chatter reduced"
+}

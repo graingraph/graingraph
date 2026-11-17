@@ -431,6 +431,9 @@ func (ex *exec) aggregate(f *syntax.FuncCall, rows []row) (any, error) {
 			}
 			seen[k] = true
 		}
+		if name == "collect" && len(vals) >= maxListLen {
+			return nil, errListTooLong()
+		}
 		vals = append(vals, v)
 	}
 	switch name {

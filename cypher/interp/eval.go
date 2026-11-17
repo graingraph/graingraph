@@ -594,7 +594,7 @@ func checkConcat(l, r any) error {
 		return errorf("ArgumentError", "ValueTooLarge", "string longer than the limit of %d bytes", maxStringBytes)
 	}
 	if ll+rl > maxListLen {
-		return errorf("ArgumentError", "ValueTooLarge", "list longer than the limit of %d elements", maxListLen)
+		return errListTooLong()
 	}
 	return nil
 }
