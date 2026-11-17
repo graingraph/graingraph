@@ -1,2 +1,3 @@
-//go:generate bash scripts/build-c.sh
+//go:generate bash ../scripts/build-c.sh
 package buildc
+
