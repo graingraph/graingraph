@@ -14,7 +14,7 @@ import (
 	"unsafe"
 )
 
-var interpCEnabled bool
+var interpCEnabled = true
 
 // WithInterpC enables the C eval core for benchmarking.
 func WithInterpC() func() {
