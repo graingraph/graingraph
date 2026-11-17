@@ -86,8 +86,11 @@ int ev_eval_expr(const unsigned char *expr_data, size_t expr_len,
                 uint16_t len = (expr_data[pc] << 8) | expr_data[pc+1];
                 pc += 2;
                 if (pc + len > expr_len) return 0;
-                // For stub, push empty string
-                ev_value val; val.typ = EV_STRING; val.v.s = "";
+                char *s = malloc(len + 1);
+                if (!s) return 0;
+                memcpy(s, expr_data + pc, len);
+                s[len] = '\0';
+                ev_value val; val.typ = EV_STRING; val.v.s = s;
                 ev_push(stack, &sp, val);
                 pc += len;
                 break;
@@ -224,13 +227,47 @@ prop_done:
                 ev_push(stack, &sp, res);
                 break;
             }
-            case EVOP_STARTS:
-            case EVOP_CONTAINS:
-            case EVOP_ENDS:
-            case EVOP_POINT_EQ:
-            case EVOP_POINT_DIST: {
-                // Stub for now: push true
-                ev_value res; res.typ = EV_BOOL; res.v.b = true;
+            case EVOP_STARTS: {
+                if (sp < 2) return 0;
+                ev_value b = ev_pop(stack, &sp);
+                ev_value a = ev_pop(stack, &sp);
+                bool resb = false;
+                if (a.typ == EV_STRING && b.typ == EV_STRING && a.v.s && b.v.s) {
+                    size_t al = strlen(a.v.s);
+                    size_t bl = strlen(b.v.s);
+                    if (bl <= al) {
+                        resb = memcmp(a.v.s, b.v.s, bl) == 0;
+                    }
+                }
+                ev_value res; res.typ = EV_BOOL; res.v.b = resb;
+                ev_push(stack, &sp, res);
+                break;
+            }
+            case EVOP_CONTAINS: {
+                if (sp < 2) return 0;
+                ev_value b = ev_pop(stack, &sp);
+                ev_value a = ev_pop(stack, &sp);
+                bool resb = false;
+                if (a.typ == EV_STRING && b.typ == EV_STRING && a.v.s && b.v.s) {
+                    resb = strstr(a.v.s, b.v.s) != NULL;
+                }
+                ev_value res; res.typ = EV_BOOL; res.v.b = resb;
+                ev_push(stack, &sp, res);
+                break;
+            }
+            case EVOP_ENDS: {
+                if (sp < 2) return 0;
+                ev_value b = ev_pop(stack, &sp);
+                ev_value a = ev_pop(stack, &sp);
+                bool resb = false;
+                if (a.typ == EV_STRING && b.typ == EV_STRING && a.v.s && b.v.s) {
+                    size_t al = strlen(a.v.s);
+                    size_t bl = strlen(b.v.s);
+                    if (bl <= al) {
+                        resb = memcmp(a.v.s + al - bl, b.v.s, bl) == 0;
+                    }
+                }
+                ev_value res; res.typ = EV_BOOL; res.v.b = resb;
                 ev_push(stack, &sp, res);
                 break;
             }

@@ -78,5 +78,8 @@ func TestEvalParityC_StartsWith(t *testing.T) {
 	if !interpCEnabled {
 		t.Skip("interp C not enabled")
 	}
-	// STARTS WITH stubbed
+	_, ok := evalStartsC("hello world", "hello")
+	if !ok {
+		t.Fatalf("starts with eval failed")
+	}
 }

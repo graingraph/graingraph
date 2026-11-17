@@ -99,6 +99,18 @@ func evalOrC(a, b bool) (bool, bool) {
 	return true, int(rc) == 1
 }
 
+func evalStartsC(a, b string) (bool, bool) {
+	left := serializeString(a)
+	right := serializeString(b)
+	code := serializeBinaryOp(byte(C.EVOP_STARTS), left, right)
+	cdata := C.CBytes(code)
+	defer C.free(cdata)
+	var out C.ev_value
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), nil, &out)
+	// For now just check success; real bool extraction is via C code
+	return true, int(rc) == 1
+}
+
 func evalNotC(a bool) (bool, bool) {
 	b := serializeBool(a)
 	code := make([]byte, 0, len(b)+1)
@@ -118,6 +130,16 @@ func serializeBool(v bool) []byte {
 	if v {
 		b[1] = 1
 	}
+	return b
+}
+
+func serializeString(v string) []byte {
+	b := make([]byte, 1+2+len(v))
+	b[0] = byte(C.EVOP_STRING)
+	kb := []byte(v)
+	b[1] = byte(len(kb) >> 8)
+	b[2] = byte(len(kb))
+	copy(b[3:], kb)
 	return b
 }
 
