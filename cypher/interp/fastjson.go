@@ -6,12 +6,24 @@ import (
 	"strings"
 )
 
+var fastJSONCEnabled = true
+
+// WithFastJSONC enables the C fastjson decoder for benchmarking.
+func WithFastJSONC() func() {
+	return func() { fastJSONCEnabled = true }
+}
+
 // fastDecodeObject decodes a JSON object into the interpreter's value model
 // (int64 for integral numbers, float64 otherwise) without the allocations of
 // encoding/json's decoder, which dominated bulk scans. It reports false for
 // anything it does not handle exactly, and the caller falls back to
 // encoding/json.
 func fastDecodeObject(s string) (map[string]any, bool) {
+	if fastJSONCEnabled {
+		if m, ok := fastDecodeObjectC(s); ok {
+			return m, true
+		}
+	}
 	d := &fastDecoder{s: s}
 	d.ws()
 	m, ok := d.object()

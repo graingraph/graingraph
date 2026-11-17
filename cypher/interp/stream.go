@@ -798,6 +798,9 @@ func (a *accumulator) add(ex *exec, r row) error {
 	case "count":
 		a.n++
 	case "collect", "percentilecont", "percentiledisc", "stdev", "stdevp":
+		if a.name == "collect" && len(a.vals) >= maxListLen {
+			return errListTooLong()
+		}
 		a.vals = append(a.vals, v)
 	case "sum":
 		switch x := v.(type) {

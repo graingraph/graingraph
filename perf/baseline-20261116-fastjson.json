@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-16",
+  "package": "github.com/graingraph/graingraph/cypher/interp",
+  "benches": [
+    {
+      "name": "BenchmarkDecodeProps/company6",
+      "ns_per_op": 313.1,
+      "bytes_per_op": 400,
+      "allocs_per_op": 7
+    },
+    {
+      "name": "BenchmarkDecodeProps/person2",
+      "ns_per_op": 151.0,
+      "bytes_per_op": 352,
+      "allocs_per_op": 3
+    },
+    {
+      "name": "BenchmarkDecodeProps/mixed",
+      "ns_per_op": 479.2,
+      "bytes_per_op": 864,
+      "allocs_per_op": 12
+    }
+  ],
+  "notes": "CGO_ENABLED=0, benchtime=5s, Apple M5 Max"
+}

@@ -630,8 +630,15 @@ func roundHalfUp(x float64) float64 {
 }
 
 // maxListLen bounds a list the interpreter materialises from range(); longer
-// ranges can still be walked lazily by UNWIND in a read-only pipeline.
-const maxListLen = 10_000_000
+// ranges can still be walked lazily by UNWIND in a read-only pipeline. It is a
+// var so tests can lower it instead of allocating millions of elements.
+var maxListLen = 10_000_000
+
+// errListTooLong is the one error every list-building path returns when it
+// would exceed maxListLen.
+func errListTooLong() error {
+	return errorf("ArgumentError", "ValueTooLarge", "list longer than the limit of %d elements", maxListLen)
+}
 
 // rangeSpec checks range()'s arguments. null is true when an argument is null.
 func rangeSpec(args []any) (start, end, step int64, null bool, err error) {
@@ -684,7 +691,7 @@ func fnRange(args []any) (any, error) {
 		return nil, err
 	}
 	n := rangeLen(start, end, step)
-	if n > maxListLen {
+	if n > uint64(maxListLen) {
 		return nil, errorf("ArgumentError", "NumberOutOfRange", "range() would produce %d elements; the limit is %d", n, maxListLen)
 	}
 	out := make([]any, 0, n)
