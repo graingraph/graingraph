@@ -81,6 +81,17 @@ int ev_eval_expr(const unsigned char *expr_data, size_t expr_len,
                 ev_push(stack, &sp, val);
                 break;
             }
+            case EVOP_STRING: {
+                if (pc + 2 > expr_len) return 0;
+                uint16_t len = (expr_data[pc] << 8) | expr_data[pc+1];
+                pc += 2;
+                if (pc + len > expr_len) return 0;
+                // For stub, push empty string
+                ev_value val; val.typ = EV_STRING; val.v.s = "";
+                ev_push(stack, &sp, val);
+                pc += len;
+                break;
+            }
             case EVOP_PROP: {
                 if (pc + 2 > expr_len) return 0;
                 uint16_t len = (expr_data[pc] << 8) | expr_data[pc+1];

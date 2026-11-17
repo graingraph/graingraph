@@ -23,6 +23,7 @@ typedef enum {
     EVOP_INT64 = 0x01,
     EVOP_BOOL  = 0x02,
     EVOP_PROP  = 0x03,
+    EVOP_STRING= 0x1B,
     EVOP_ADD   = 0x04,
     EVOP_SUB   = 0x05,
     EVOP_MUL   = 0x06,
