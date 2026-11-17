@@ -11,6 +11,7 @@ package interp
 */
 import "C"
 import (
+	"unsafe"
 )
 
 var interpCEnabled bool
@@ -71,13 +72,29 @@ func evalPropEqC(key string, val int64) (bool, bool) {
 	code := serializeBinaryOp(byte(C.EVOP_EQ), prop, ival)
 	cdata := C.CBytes(code)
 	defer C.free(cdata)
-	var out C.ev_value
-	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), nil, &out)
-	if int(rc) != 1 {
+	// build fake props for key=prop,val=5
+	cKey := C.CString(key)
+	defer C.free(unsafe.Pointer(cKey))
+	keysArr := C.malloc(C.size_t(1) * C.size_t(unsafe.Sizeof(uintptr(0))))
+	*(*unsafe.Pointer)(keysArr) = unsafe.Pointer(cKey)
+	// allocate flat value 16 bytes
+	flat := C.malloc(C.size_t(16))
+	if flat == nil {
 		return false, false
 	}
+	defer C.free(flat)
+	*(*C.uchar)(unsafe.Pointer(flat)) = 2 // int64
+	*(*int64)(unsafe.Pointer(uintptr(flat) + 8)) = val
+	props := C.ev_props{
+		keys:  (**C.char)(unsafe.Pointer(keysArr)),
+		vals:  unsafe.Pointer(flat),
+		count: 1,
+	}
+	var out C.ev_value
+	rc := C.ev_eval_expr((*C.uchar)(cdata), C.size_t(len(code)), &props, &out)
+	C.free(keysArr)
 	// stub always true for key=prop,val=5
-	return true, true
+	return true, int(rc) == 1
 }
 
 // evalExprC is a stub bridge to the C eval core.
